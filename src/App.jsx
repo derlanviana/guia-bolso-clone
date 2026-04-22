@@ -12,10 +12,22 @@ function App() {
   
   // Load from LocalStorage on mount
   useEffect(() => {
-    const savedTx = localStorage.getItem('guiabolso_tx');
-    const savedAcc = localStorage.getItem('guiabolso_acc');
-    if (savedTx) setTransactions(JSON.parse(savedTx));
-    if (savedAcc) setAccounts(JSON.parse(savedAcc));
+    try {
+      const savedTx = localStorage.getItem('guiabolso_tx');
+      const savedAcc = localStorage.getItem('guiabolso_acc');
+      if (savedTx) {
+        const parsed = JSON.parse(savedTx);
+        setTransactions(Array.isArray(parsed) ? parsed : []);
+      }
+      if (savedAcc) {
+        const parsed = JSON.parse(savedAcc);
+        setAccounts(Array.isArray(parsed) ? parsed : []);
+      }
+    } catch (e) {
+      console.error('Error parsing localStorage:', e);
+      setTransactions([]);
+      setAccounts([]);
+    }
   }, []);
 
   // Save to LocalStorage when changed
@@ -43,7 +55,10 @@ function App() {
   const fileInputRef = useRef(null);
 
   // Computed Data
-  const filteredTransactions = transactions.filter(tx => tx.date.startsWith(currentMonth));
+  const safeTransactions = Array.isArray(transactions) ? transactions : [];
+  const safeAccounts = Array.isArray(accounts) ? accounts : [];
+
+  const filteredTransactions = safeTransactions.filter(tx => tx?.date?.startsWith(currentMonth));
   
   let income = 0;
   let expense = 0;
@@ -53,7 +68,7 @@ function App() {
   });
 
   const formatCurrency = (value) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
   };
 
   const handleMonthChange = (offset) => {
@@ -63,6 +78,7 @@ function App() {
   };
 
   const getMonthName = (yyyyMM) => {
+    if (!yyyyMM) return '';
     const [year, month] = yyyMM.split('-');
     const date = new Date(year, month - 1, 1);
     return date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(' de ', ' ');
