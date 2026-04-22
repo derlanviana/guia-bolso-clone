@@ -4,14 +4,13 @@ export default async function handler(req, res) {
   }
 
   const { VITE_BELVO_SECRET_ID, VITE_BELVO_SECRET_PASSWORD } = process.env;
+  const { origin = 'http://localhost:5173' } = req.body || {};
 
   if (!VITE_BELVO_SECRET_ID || !VITE_BELVO_SECRET_PASSWORD) {
     return res.status(500).json({ error: 'Missing Belvo credentials' });
   }
 
   try {
-    const origin = req.headers.origin || 'http://localhost:5173';
-    
     const response = await fetch('https://sandbox.belvo.com/api/token/', {
       method: 'POST',
       headers: {

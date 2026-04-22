@@ -38,12 +38,16 @@ function App() {
       setLoading(true);
       const res = await fetch('/api/belvo-token', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ origin: window.location.origin })
       });
       const data = await res.json();
       
       if (data.access) {
-        // Redirect to Belvo Hosted Widget
-        window.location.href = `https://widget.belvo.io/?access_token=${data.access}`;
+        // Redirect to Belvo Hosted Widget (in Portuguese)
+        window.location.href = `https://widget.belvo.io/?access_token=${data.access}&locale=pt`;
       } else {
         alert('Erro ao gerar o token de acesso da Belvo.');
       }
