@@ -11,7 +11,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    const response = await fetch('https://sandbox.belvo.com/api/token/', {
+    const belvoEnv = process.env.VITE_BELVO_ENV === 'production' 
+      ? 'https://api.belvo.com/api/token/' 
+      : 'https://sandbox.belvo.com/api/token/';
+
+    const response = await fetch(belvoEnv, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
