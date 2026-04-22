@@ -95,7 +95,7 @@ function App() {
       {pluggyToken && (
         <PluggyConnect
           connectToken={pluggyToken}
-          includeSandbox={true}
+          includeSandbox={false}
           onSuccess={handlePluggySuccess}
           onError={handlePluggyError}
         />
