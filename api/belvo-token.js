@@ -20,7 +20,14 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         id: VITE_BELVO_SECRET_ID,
         password: VITE_BELVO_SECRET_PASSWORD,
-        scopes: 'read_institutions,write_links,read_links'
+        scopes: 'read_institutions,write_links,read_links',
+        widget: {
+          branding: {},
+          callback_urls: {
+            success: `${origin}?success=true`,
+            exit: `${origin}?exit=true`
+          }
+        }
       })
     });
 
