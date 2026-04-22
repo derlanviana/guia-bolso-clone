@@ -10,10 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "pluggy-sdk": "^0.85.2",
+    "papaparse": "^5.5.3",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-pluggy-connect": "^2.12.0"
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.15",
