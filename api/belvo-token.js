@@ -20,6 +20,7 @@ export default async function handler(req, res) {
         id: VITE_BELVO_SECRET_ID,
         password: VITE_BELVO_SECRET_PASSWORD,
         scopes: 'read_institutions,write_links,read_links',
+        fetch_resources: ['ACCOUNTS', 'TRANSACTIONS', 'BALANCES'],
         widget: {
           branding: {},
           callback_urls: {
