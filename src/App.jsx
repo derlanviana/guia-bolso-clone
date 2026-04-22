@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { PluggyConnect } from 'react-pluggy-connect';
 
 // Mock data for the initial layout
 const MOCK_TRANSACTIONS = [
@@ -15,16 +16,7 @@ function App() {
   const [expense] = useState(2150.30);
   const [loading, setLoading] = useState(false);
   const [connectionSuccess, setConnectionSuccess] = useState(false);
-
-  useEffect(() => {
-    // Check if we are returning from Belvo Widget successfully
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('success') === 'true') {
-      setConnectionSuccess(true);
-      // Clean up the URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, []);
+  const [pluggyToken, setPluggyToken] = useState(null);
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -36,20 +28,15 @@ function App() {
   const handleConnectBank = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/belvo-token', {
+      const res = await fetch('/api/pluggy-token', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ origin: window.location.origin })
       });
       const data = await res.json();
       
-      if (data.access) {
-        // Redirect to Belvo Hosted Widget (in Portuguese)
-        window.location.href = `https://widget.belvo.io/?access_token=${data.access}&locale=pt`;
+      if (data.accessToken) {
+        setPluggyToken(data.accessToken);
       } else {
-        alert('Erro ao gerar o token de acesso da Belvo.');
+        alert('Erro ao gerar o token de acesso da Pluggy.');
       }
     } catch (error) {
       console.error(error);
@@ -59,14 +46,35 @@ function App() {
     }
   };
 
+  const handlePluggySuccess = (itemData) => {
+    console.log('Conexão com Pluggy bem-sucedida:', itemData);
+    setConnectionSuccess(true);
+    setPluggyToken(null);
+  };
+
+  const handlePluggyError = (error) => {
+    console.error('Erro na Pluggy:', error);
+    setPluggyToken(null);
+    alert('A conexão bancária foi cancelada ou falhou.');
+  };
+
   return (
     <div className="app-container">
+      {pluggyToken && (
+        <PluggyConnect
+          connectToken={pluggyToken}
+          includeSandbox={true}
+          onSuccess={handlePluggySuccess}
+          onError={handlePluggyError}
+        />
+      )}
+
       <header className="dashboard-header">
         <div>
           <h1>Olá, Derlan</h1>
           <h2>Seu resumo financeiro de Abril</h2>
         </div>
-        <button className="btn" onClick={handleConnectBank} disabled={loading}>
+        <button className="btn" onClick={handleConnectBank} disabled={loading || pluggyToken}>
           <span>{loading ? '⏳' : '🏦'}</span> 
           {loading ? 'Conectando...' : 'Conectar Banco'}
         </button>
@@ -74,7 +82,7 @@ function App() {
 
       {connectionSuccess && (
         <div style={{ background: 'var(--success-color)', color: 'white', padding: '16px', borderRadius: '12px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span>✅</span> Conta conectada com sucesso! Em breve seus dados reais aparecerão aqui.
+          <span>✅</span> Conta conectada com sucesso via Pluggy! Em breve seus dados reais aparecerão aqui.
         </div>
       )}
 
