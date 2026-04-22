@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { parseOFX, parseCSV } from './utils/parser';
+import { supabase } from './supabaseClient';
 
 const CATEGORIES = [
   'Geral', 'Alimentação', 'Moradia', 'Transporte', 'Saúde', 
@@ -9,32 +10,33 @@ const CATEGORIES = [
 function App() {
   const [transactions, setTransactions] = useState([]);
   const [accounts, setAccounts] = useState([]);
+  const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(false);
   
-  // Load from LocalStorage on mount
+  // Load from Supabase on mount
   useEffect(() => {
-    try {
-      const savedTx = localStorage.getItem('guiabolso_tx');
-      const savedAcc = localStorage.getItem('guiabolso_acc');
-      if (savedTx) {
-        const parsed = JSON.parse(savedTx);
-        setTransactions(Array.isArray(parsed) ? parsed : []);
-      }
-      if (savedAcc) {
-        const parsed = JSON.parse(savedAcc);
-        setAccounts(Array.isArray(parsed) ? parsed : []);
-      }
-    } catch (e) {
-      console.error('Error parsing localStorage:', e);
-      setTransactions([]);
-      setAccounts([]);
-    }
-  }, []);
+    const checkAndFetchData = async () => {
+      if (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) {
+        setIsSupabaseConfigured(true);
+        try {
+          const { data: txData, error: txError } = await supabase.from('transactions').select('*').order('date', { ascending: false });
+          if (txError) throw txError;
+          if (txData) setTransactions(txData);
 
-  // Save to LocalStorage when changed
-  useEffect(() => {
-    localStorage.setItem('guiabolso_tx', JSON.stringify(transactions));
-    localStorage.setItem('guiabolso_acc', JSON.stringify(accounts));
-  }, [transactions, accounts]);
+          const { data: accData, error: accError } = await supabase.from('accounts').select('*');
+          if (accError) throw accError;
+          if (accData) setAccounts(accData);
+        } catch (error) {
+          console.error('Erro ao buscar dados do Supabase. Verifique se as tabelas existem:', error.message);
+          alert('Erro de conexão com o banco de dados. Verifique as configurações do Supabase.');
+        }
+      } else {
+        // Fallback or warning if no env
+        console.warn('Supabase não configurado no .env.local');
+      }
+    };
+
+    checkAndFetchData();
+  }, []);
 
   // View State
   const [currentMonth, setCurrentMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
@@ -67,6 +69,9 @@ function App() {
     if (tx.amount < 0) expense += Math.abs(tx.amount);
   });
 
+  const balance = safeAccounts.reduce((acc, curr) => acc + curr.balance, 0) + 
+                  safeTransactions.reduce((acc, curr) => acc + curr.amount, 0);
+
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
   };
@@ -87,6 +92,10 @@ function App() {
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
+    if (!isSupabaseConfigured) {
+      alert("Configure as chaves do Supabase primeiro!");
+      return;
+    }
 
     setLoading(true);
     try {
@@ -104,13 +113,12 @@ function App() {
 
       if (newTransactions.length > 0) {
         // Conciliation: prevent duplicates by ID or identical match
-        const existingIds = new Set(transactions.map(t => t.id));
+        const existingIds = new Set(safeTransactions.map(t => t.id));
         const imported = [];
         let ignored = 0;
 
         newTransactions.forEach(tx => {
-          // Fallback duplicate check if ID is missing or bad
-          const isDuplicate = transactions.some(etx => etx.amount === tx.amount && etx.date.split('T')[0] === tx.date.split('T')[0]);
+          const isDuplicate = safeTransactions.some(etx => etx.amount === tx.amount && etx.date.split('T')[0] === tx.date.split('T')[0]);
           
           if (!existingIds.has(tx.id) && !isDuplicate) {
             imported.push(tx);
@@ -121,9 +129,26 @@ function App() {
         });
 
         if (imported.length > 0) {
-          const allTransactions = [...transactions, ...imported].sort((a, b) => new Date(b.date) - new Date(a.date));
+          // Insert into Supabase
+          const { error } = await supabase.from('transactions').insert(imported);
+          if (error) throw error;
+
+          const allTransactions = [...safeTransactions, ...imported].sort((a, b) => new Date(b.date) - new Date(a.date));
           setTransactions(allTransactions);
-          alert(`Conciliação concluída!\n✅ ${imported.length} novas transações importadas.\n⚠️ ${ignored} ignoradas (já existiam).`);
+
+          // Save account reference
+          const newAccount = {
+            id: Math.random().toString(36).substring(7),
+            name: 'Conta Importada',
+            number: file.name,
+            balance: imported.reduce((acc, tx) => acc + tx.amount, 0)
+          };
+          const { error: accError } = await supabase.from('accounts').insert([newAccount]);
+          if (!accError) {
+             setAccounts([...safeAccounts, newAccount]);
+          }
+
+          alert(`Conciliação concluída!\n✅ ${imported.length} novas transações salvas na nuvem.\n⚠️ ${ignored} ignoradas (já existiam).`);
         } else {
           alert(`Todas as ${ignored} transações do arquivo já existiam no sistema. Nenhuma novidade.`);
         }
@@ -133,7 +158,7 @@ function App() {
       }
     } catch (error) {
       console.error(error);
-      alert('Houve um erro ao processar o extrato.');
+      alert('Houve um erro ao salvar os dados no Supabase.');
     } finally {
       setLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -161,20 +186,32 @@ function App() {
     setIsModalOpen(true);
   };
 
-  const saveTransaction = (e) => {
+  const saveTransaction = async (e) => {
     e.preventDefault();
+    if (!isSupabaseConfigured) {
+      alert("Configure as chaves do Supabase primeiro!");
+      return;
+    }
+
     const finalAmount = formType === 'expense' ? -Math.abs(parseFloat(formAmount)) : Math.abs(parseFloat(formAmount));
     
     if (editingTx) {
-      const updated = transactions.map(t => t.id === editingTx.id ? {
-        ...t,
+      const updatedTx = {
         description: formDesc,
         amount: finalAmount,
         date: new Date(formDate).toISOString(),
         category: formCategory,
         isRecurring
-      } : t);
-      setTransactions(updated.sort((a, b) => new Date(b.date) - new Date(a.date)));
+      };
+
+      const { error } = await supabase.from('transactions').update(updatedTx).eq('id', editingTx.id);
+      
+      if (!error) {
+        const updated = safeTransactions.map(t => t.id === editingTx.id ? { ...t, ...updatedTx } : t);
+        setTransactions(updated.sort((a, b) => new Date(b.date) - new Date(a.date)));
+      } else {
+        alert('Erro ao atualizar no banco de dados.');
+      }
     } else {
       const newTx = {
         id: Math.random().toString(36).substring(7),
@@ -184,24 +221,42 @@ function App() {
         category: formCategory,
         isRecurring
       };
-      setTransactions([...transactions, newTx].sort((a, b) => new Date(b.date) - new Date(a.date)));
+      
+      const { error } = await supabase.from('transactions').insert([newTx]);
+      
+      if (!error) {
+        setTransactions([...safeTransactions, newTx].sort((a, b) => new Date(b.date) - new Date(a.date)));
+      } else {
+        alert('Erro ao salvar no banco de dados.');
+      }
     }
     setIsModalOpen(false);
   };
 
-  const deleteTransaction = () => {
+  const deleteTransaction = async () => {
     if (!editingTx) return;
     if (window.confirm('Tem certeza que deseja excluir este lançamento?')) {
-      setTransactions(transactions.filter(t => t.id !== editingTx.id));
-      setIsModalOpen(false);
+      const { error } = await supabase.from('transactions').delete().eq('id', editingTx.id);
+      if (!error) {
+        setTransactions(safeTransactions.filter(t => t.id !== editingTx.id));
+        setIsModalOpen(false);
+      } else {
+        alert('Erro ao excluir do banco de dados.');
+      }
     }
   };
 
   return (
     <div className="app-container">
+      {!isSupabaseConfigured && (
+        <div style={{ background: 'var(--danger-color)', color: 'white', padding: '16px', borderRadius: '12px', marginBottom: '24px', textAlign: 'center' }}>
+          <strong>Atenção:</strong> Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY na Vercel para ativar o banco de dados em nuvem.
+        </div>
+      )}
+
       <header className="dashboard-header">
         <div>
-          <h1>Minhas Finanças</h1>
+          <h1>Minhas Finanças (Cloud)</h1>
           <div className="month-selector">
             <button onClick={() => handleMonthChange(-1)}>◄</button>
             <span style={{textTransform: 'capitalize'}}>{getMonthName(currentMonth)}</span>
@@ -211,10 +266,10 @@ function App() {
         
         <div className="header-actions">
           <input type="file" accept=".ofx,.csv,.pdf" style={{ display: 'none' }} ref={fileInputRef} onChange={handleFileUpload} />
-          <button className="btn secondary" onClick={() => fileInputRef.current.click()} disabled={loading}>
-            <span>📥</span> Importar OFX/CSV
+          <button className="btn secondary" onClick={() => fileInputRef.current.click()} disabled={loading || !isSupabaseConfigured}>
+            <span>📥</span> Importar (Nuvem)
           </button>
-          <button className="btn" onClick={() => openModal()}>
+          <button className="btn" onClick={() => openModal()} disabled={!isSupabaseConfigured}>
             <span>➕</span> Lançar Manual
           </button>
         </div>
@@ -348,7 +403,7 @@ function App() {
                   </button>
                 )}
                 <button type="button" className="btn secondary" onClick={() => setIsModalOpen(false)}>Cancelar</button>
-                <button type="submit" className="btn">Salvar</button>
+                <button type="submit" className="btn">Salvar (Nuvem)</button>
               </div>
             </form>
           </div>
