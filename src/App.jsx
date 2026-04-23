@@ -20,7 +20,12 @@ function App() {
         try {
           const { data: txData, error: txError } = await supabase.from('transactions').select('*').order('date', { ascending: false });
           if (txError) throw txError;
-          if (txData) setTransactions(txData);
+          if (txData) {
+            setTransactions(txData.map(tx => ({
+              ...tx,
+              isRecurring: tx.isrecurring
+            })));
+          }
 
           const { data: accData, error: accError } = await supabase.from('accounts').select('*');
           if (accError) throw accError;
@@ -129,8 +134,12 @@ function App() {
         });
 
         if (imported.length > 0) {
-          // Insert into Supabase
-          const { error } = await supabase.from('transactions').insert(imported);
+          // Insert into Supabase (Map isRecurring to isrecurring for Postgres)
+          const dbImported = imported.map(({ isRecurring, ...rest }) => ({
+            ...rest,
+            isrecurring: isRecurring || false
+          }));
+          const { error } = await supabase.from('transactions').insert(dbImported);
           if (error) throw error;
 
           const allTransactions = [...safeTransactions, ...imported].sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -201,13 +210,13 @@ function App() {
         amount: finalAmount,
         date: new Date(formDate).toISOString(),
         category: formCategory,
-        isRecurring
+        isrecurring: isRecurring
       };
 
       const { error } = await supabase.from('transactions').update(updatedTx).eq('id', editingTx.id);
       
       if (!error) {
-        const updated = safeTransactions.map(t => t.id === editingTx.id ? { ...t, ...updatedTx } : t);
+        const updated = safeTransactions.map(t => t.id === editingTx.id ? { ...t, ...updatedTx, isRecurring } : t);
         setTransactions(updated.sort((a, b) => new Date(b.date) - new Date(a.date)));
       } else {
         alert('Erro ao atualizar no banco de dados.');
@@ -219,13 +228,13 @@ function App() {
         amount: finalAmount,
         date: new Date(formDate).toISOString(),
         category: formCategory,
-        isRecurring
+        isrecurring: isRecurring
       };
       
       const { error } = await supabase.from('transactions').insert([newTx]);
       
       if (!error) {
-        setTransactions([...safeTransactions, newTx].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        setTransactions([...safeTransactions, { ...newTx, isRecurring }].sort((a, b) => new Date(b.date) - new Date(a.date)));
       } else {
         alert('Erro ao salvar no banco de dados.');
       }
