@@ -339,8 +339,13 @@ function App() {
                       <div className="transaction-details">
                         <h4>
                           {tx.isRecurring && <span title="Recorrente">🔄 </span>}
-                          {tx.description}
+                          {tx.description.split(' | ')[0]}
                         </h4>
+                        {tx.description.includes(' | ') && (
+                          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '2px 0 4px 0', opacity: 0.8 }}>
+                            {tx.description.split(' | ')[1]}
+                          </p>
+                        )}
                         <p>
                           <span className="category-badge">{tx.category}</span>
                           {new Date(tx.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}

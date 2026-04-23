@@ -46,6 +46,41 @@ const autoCategorize = (description, amount) => {
   return 'Geral';
 };
 
+export const cleanTransactionString = (rawDesc) => {
+  let title = rawDesc;
+  let details = '';
+
+  // Tenta casar com o padrão longo de PIX: "Transferência enviada pelo Pix - NOME - DETALHES..."
+  const pixRegex = /(Transferência (?:enviada|recebida) pelo Pix|Pix(?: enviado| recebido)?|Pagamento via Pix)[\s\-]+([A-Z\s]+)[\s\-]+(.*)/i;
+  const match = rawDesc.match(pixRegex);
+
+  if (match) {
+    const action = match[1].toLowerCase();
+    const isSent = action.includes('enviada') || action.includes('enviado') || action.includes('pagamento');
+    const rawName = match[2].trim().toLowerCase();
+    
+    // Capitalize name (ex: jozilene sousa -> Jozilene Sousa)
+    const formattedName = rawName.split(' ')
+      .filter(w => w.length > 0)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+      
+    title = `Pix ${isSent ? 'p/' : 'de'} ${formattedName}`;
+    details = match[3].trim();
+  } else if (rawDesc.toLowerCase().includes('pix') && rawDesc.includes('-')) {
+    // Fallback genérico para outros formatos de PIX
+    const parts = rawDesc.split('-');
+    title = parts[0].trim();
+    details = parts.slice(1).join('-').trim();
+  } else {
+    // Limpeza de espaços duplos
+    title = rawDesc.replace(/\s{2,}/g, ' ').trim();
+  }
+
+  // Se houver detalhes, une com um ' | ' para separarmos na interface sem precisar alterar o banco
+  return details ? `${title} | ${details}` : title;
+};
+
 export const parseOFX = (ofxString) => {
   const transactions = [];
   // Basic OFX Regex parsing since OFX is SGML/XML-like but often malformed
@@ -71,7 +106,10 @@ export const parseOFX = (ofxString) => {
       const year = dateMatch[1].substring(0, 4);
       const month = dateMatch[1].substring(4, 6);
       const day = dateMatch[1].substring(6, 8);
-      const description = (memoMatch ? memoMatch[1] : (nameMatch ? nameMatch[1] : 'Transação')).trim();
+      
+      const rawDescription = (memoMatch ? memoMatch[1] : (nameMatch ? nameMatch[1] : 'Transação')).trim();
+      const description = cleanTransactionString(rawDescription);
+      
       const amount = parseFloat(amountMatch[1].replace(',', '.'));
       
       transactions.push({
@@ -118,7 +156,7 @@ export const parseCSV = (csvString) => {
             if (!isNaN(amount)) {
               transactions.push({
                 id: Math.random().toString(36).substring(7),
-                description: descStr,
+                description: cleanTransactionString(descStr),
                 amount: amount,
                 date: isoDate,
                 category: autoCategorize(descStr, amount)
