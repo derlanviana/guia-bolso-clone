@@ -84,7 +84,7 @@ function App() {
 
   const getMonthName = (yyyyMM) => {
     if (!yyyyMM) return '';
-    const [year, month] = yyyMM.split('-');
+    const [year, month] = yyyyMM.split('-');
     const date = new Date(year, month - 1, 1);
     return date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(' de ', ' ');
   };
