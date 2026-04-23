@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { parseOFX, parseCSV } from './utils/parser';
 import { supabase } from './supabaseClient';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 const CATEGORIES = [
   'Geral', 'Alimentação', 'Moradia', 'Transporte', 'Saúde', 
@@ -303,21 +304,57 @@ function App() {
           </div>
           
           <div className="glass-panel" style={{ marginTop: '24px' }}>
-            <h2>Resumo por Categoria</h2>
+            <h2>Despesas por Categoria</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {CATEGORIES.map(cat => {
-                const totalCat = filteredTransactions.filter(t => t.category === cat && t.amount < 0).reduce((a, b) => a + Math.abs(b.amount), 0);
-                if (totalCat === 0) return null;
+              {(() => {
+                const chartData = CATEGORIES.map(cat => {
+                  const value = filteredTransactions.filter(t => t.category === cat && t.amount < 0).reduce((a, b) => a + Math.abs(b.amount), 0);
+                  return { name: cat, value };
+                }).filter(d => d.value > 0).sort((a, b) => b.value - a.value);
+
+                const COLORS = ['#129E3F', '#006A33', '#454843', '#8E918B', '#3498db', '#e67e22', '#9b59b6', '#f1c40f', '#e74c3c', '#1abc9c'];
+
+                if (chartData.length === 0) {
+                  return <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Nenhuma despesa neste mês.</p>;
+                }
+
                 return (
-                  <div key={cat} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
-                    <span>{cat}</span>
-                    <span style={{fontWeight: 'bold'}}>{formatCurrency(totalCat)}</span>
-                  </div>
-                )
-              })}
-              {filteredTransactions.filter(t => t.amount < 0).length === 0 && (
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Nenhuma despesa neste mês.</p>
-              )}
+                  <>
+                    <div style={{ width: '100%', height: 200 }}>
+                      <ResponsiveContainer>
+                        <PieChart>
+                          <Pie
+                            data={chartData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={80}
+                            paddingAngle={2}
+                            dataKey="value"
+                            stroke="none"
+                          >
+                            {chartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(value) => formatCurrency(value)} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
+                      {chartData.map((entry, index) => (
+                        <div key={entry.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: COLORS[index % COLORS.length] }}></div>
+                            <span style={{ color: 'var(--text-primary)' }}>{entry.name}</span>
+                          </div>
+                          <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{formatCurrency(entry.value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>

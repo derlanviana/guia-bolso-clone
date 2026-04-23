@@ -1,16 +1,17 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
-  --bg-color: #0b0f19;
-  --panel-bg: rgba(255, 255, 255, 0.03);
-  --panel-border: rgba(255, 255, 255, 0.08);
-  --text-primary: #ffffff;
-  --text-secondary: #94a3b8;
-  --accent-color: #6366f1;
-  --accent-hover: #4f46e5;
-  --success-color: #10b981;
-  --danger-color: #ef4444;
-  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  --bg-color: #FBF7EA;
+  --panel-bg: #FFFFFF;
+  --panel-border: #EAE6D7;
+  --text-primary: #454843;
+  --text-secondary: #8E918B;
+  --accent-color: #129E3F;
+  --accent-hover: #006A33;
+  --accent-light: #E0F4E8;
+  --success-color: #129E3F;
+  --danger-color: #E74C3C;
+  --glass-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   --font-family: 'Inter', sans-serif;
 }
 
@@ -22,23 +23,17 @@
 
 body {
   background-color: var(--bg-color);
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.1) 0px, transparent 50%);
-  background-attachment: fixed;
   color: var(--text-primary);
   font-family: var(--font-family);
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
 }
 
-/* Glassmorphism Panels */
+/* Glassmorphism Panels -> Solid White Panels for Organizze Theme */
 .glass-panel {
   background: var(--panel-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--panel-border);
-  border-radius: 20px;
+  border-radius: 16px;
   padding: 24px;
   box-shadow: var(--glass-shadow);
   transition: transform 0.3s ease, box-shadow 0.3s ease;
@@ -46,7 +41,7 @@ body {
 
 .glass-panel:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
 }
 
 /* Typography */
@@ -56,12 +51,13 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 h1 {
-  font-size: 2.5rem;
+  font-size: 2.2rem;
   margin-bottom: 8px;
+  color: var(--text-primary);
 }
 
 h2 {
-  font-size: 1.5rem;
+  font-size: 1.3rem;
   margin-bottom: 16px;
   color: var(--text-secondary);
 }
@@ -69,9 +65,7 @@ h2 {
 .currency {
   font-size: 3rem;
   font-weight: 700;
-  background: linear-gradient(to right, #fff, #94a3b8);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--text-primary);
   margin-bottom: 24px;
 }
 
@@ -117,12 +111,13 @@ h2 {
   display: flex;
   align-items: center;
   gap: 16px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--panel-bg);
   padding: 8px 24px;
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--panel-border);
   margin-bottom: 24px;
   width: fit-content;
+  box-shadow: var(--glass-shadow);
 }
 
 .month-selector button {
@@ -135,7 +130,7 @@ h2 {
 }
 
 .month-selector button:hover {
-  color: white;
+  color: var(--accent-color);
 }
 
 .month-selector span {
@@ -143,6 +138,7 @@ h2 {
   font-size: 1.1rem;
   min-width: 120px;
   text-align: center;
+  color: var(--accent-color);
 }
 
 /* Buttons */
@@ -168,19 +164,21 @@ h2 {
 }
 
 .btn.secondary {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--panel-bg);
+  color: var(--accent-color);
+  border: 1px solid var(--accent-color);
 }
 .btn.secondary:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--accent-light);
 }
 
 .btn.danger {
-  background: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
-  border: 1px solid rgba(239, 68, 68, 0.5);
+  background: white;
+  color: var(--danger-color);
+  border: 1px solid var(--danger-color);
 }
 .btn.danger:hover {
-  background: rgba(239, 68, 68, 0.3);
+  background: #FDEDEC;
 }
 
 /* Transaction List */
@@ -196,15 +194,16 @@ h2 {
   align-items: center;
   padding: 16px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
   transition: background 0.2s ease, transform 0.2s ease;
   cursor: pointer;
 }
 
 .transaction-item:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: #FAFAFA;
   transform: scale(1.01);
+  border-color: var(--accent-light);
 }
 
 .transaction-info {
@@ -220,13 +219,15 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-color);
   font-size: 1.25rem;
+  border: 1px solid var(--panel-border);
 }
 
 .transaction-details h4 {
   font-size: 1rem;
   margin-bottom: 4px;
+  color: var(--text-primary);
 }
 
 .transaction-details p {
@@ -238,9 +239,11 @@ h2 {
   display: inline-block;
   padding: 2px 8px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--accent-light);
+  color: var(--accent-hover);
   font-size: 0.75rem;
   margin-right: 8px;
+  font-weight: 600;
 }
 
 .transaction-amount {
@@ -260,8 +263,8 @@ h2 {
 }
 
 .stat-box {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--bg-color);
+  border: 1px solid var(--panel-border);
   border-radius: 12px;
   padding: 16px;
 }
@@ -282,8 +285,8 @@ h2 {
 .modal-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(5px);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -292,13 +295,13 @@ h2 {
 }
 
 .modal-content {
-  background: #1e293b;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
   padding: 32px;
   border-radius: 20px;
   width: 90%;
   max-width: 500px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
   animation: slideUp 0.3s ease;
 }
 
@@ -312,6 +315,7 @@ h2 {
 .modal-header h3 {
   font-size: 1.5rem;
   margin: 0;
+  color: var(--text-primary);
 }
 
 .close-btn {
@@ -323,7 +327,7 @@ h2 {
 }
 
 .close-btn:hover {
-  color: white;
+  color: var(--danger-color);
 }
 
 /* Forms */
@@ -336,15 +340,16 @@ h2 {
   margin-bottom: 8px;
   font-size: 0.875rem;
   color: var(--text-secondary);
+  font-weight: 600;
 }
 
 .form-control {
   width: 100%;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-color);
+  border: 1px solid var(--panel-border);
   padding: 12px;
   border-radius: 8px;
-  color: white;
+  color: var(--text-primary);
   font-family: inherit;
   font-size: 1rem;
 }
@@ -352,6 +357,7 @@ h2 {
 .form-control:focus {
   outline: none;
   border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px var(--accent-light);
 }
 
 .form-actions {
