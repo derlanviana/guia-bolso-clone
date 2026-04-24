@@ -152,8 +152,10 @@ function App() {
     if (toImportRaw.length > 0) {
       setLoading(true);
       try {
-        const dbImported = toImportRaw.map(({ action, matchedTx, isRecurring, ...rest }) => ({
+        const dbImported = toImportRaw.map(({ action, matchedTx, customDesc, customCategory, isRecurring, description, category, ...rest }) => ({
           ...rest,
+          description: customDesc || description.split(' | ')[0],
+          category: customCategory || category || 'Geral',
           isrecurring: isRecurring || false
         }));
         
@@ -196,13 +198,21 @@ function App() {
     setConciliatingTxId(null);
   };
 
+  const updateTxField = (id, field, value) => {
+    setConciliationData(prev => ({
+      ...prev,
+      transactions: prev.transactions.map(t => 
+        t.id === id ? { ...t, [field]: value } : t
+      )
+    }));
+  };
+
   const toggleConciliationItem = (id) => {
-    // Checkbox purely for visual logic. If checked -> add, if unchecked -> null
     setConciliationData(prev => ({
       ...prev,
       transactions: prev.transactions.map(t => {
         if (t.id === id) {
-          if (t.action) return { ...t, action: null }; // Uncheck
+          if (t.action && t.action !== 'ignore') return { ...t, action: 'ignore' }; // Uncheck means ignore
           return { ...t, action: 'add' }; // Check defaults to add
         }
         return t;
@@ -292,7 +302,7 @@ function App() {
   };
 
   if (conciliationData) {
-    const selectedCount = conciliationData.transactions.filter(t => t.action !== null).length;
+    const selectedCount = conciliationData.transactions.filter(t => t.action === 'add' || t.action === 'match').length;
     
     return (
       <div className="app-container" style={{ maxWidth: '1000px' }}>
@@ -315,7 +325,7 @@ function App() {
               <div key={tx.id} style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <input 
                   type="checkbox" 
-                  checked={tx.action !== null}
+                  checked={tx.action === 'add' || tx.action === 'match'}
                   onChange={() => toggleConciliationItem(tx.id)}
                   style={{ width: '20px', height: '20px', cursor: 'pointer', flexShrink: 0 }}
                 />
@@ -329,7 +339,7 @@ function App() {
                   background: 'var(--panel-bg)', 
                   border: '1px solid var(--panel-border)', 
                   borderRadius: '4px',
-                  opacity: tx.action === null ? 0.6 : 1
+                  opacity: (!tx.action || tx.action === 'ignore') ? 0.6 : 1
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                     <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '0.95rem' }}>{tx.description.split(' | ')[0]}</span>
@@ -347,57 +357,91 @@ function App() {
 
                 {/* Right Side: Action / Matched Transaction */}
                 <div style={{ flex: 1 }}>
-                  {tx.action === null ? (
+                  {(!tx.action || tx.action === 'ignore') ? (
                     <div style={{
                       padding: '16px', 
-                      background: 'transparent', 
+                      background: tx.action === 'ignore' ? '#f5f5f5' : 'transparent', 
                       border: '1px dashed #ccc', 
                       borderRadius: '4px',
                       display: 'flex',
                       justifyContent: 'center',
                       alignItems: 'center',
                       gap: '8px',
-                      color: 'var(--accent-color)',
                       fontWeight: '500',
                       fontSize: '0.9rem'
                     }}>
-                      <button style={{ background: 'none', border: 'none', color: 'var(--accent-color)', cursor: 'pointer', fontWeight: '500' }} onClick={() => setTxAction(tx.id, 'add')}>
-                        + adicionar
-                      </button>
-                      <span style={{ color: '#ccc' }}>|</span>
-                      {conciliatingTxId === tx.id ? (
-                        <select 
-                          autoFocus
-                          style={{ padding: '4px', borderRadius: '4px', border: '1px solid var(--accent-color)', outline: 'none' }}
-                          onChange={(e) => {
-                            if (!e.target.value) return;
-                            const match = safeTransactions.find(t => t.id === e.target.value);
-                            setTxAction(tx.id, 'match', match);
-                          }}
-                          onBlur={() => setConciliatingTxId(null)}
-                        >
-                          <option value="">Selecione um lançamento...</option>
-                          {safeTransactions.slice(0, 100).map(etx => (
-                            <option key={etx.id} value={etx.id}>{etx.description.split(' | ')[0]} - {formatCurrency(etx.amount)}</option>
-                          ))}
-                        </select>
+                      {tx.action === 'ignore' ? (
+                        <>
+                          <span style={{ color: 'var(--text-secondary)' }}>Ignorado</span>
+                          <span style={{ color: '#ccc' }}>|</span>
+                          <button style={{ background: 'none', border: 'none', color: 'var(--accent-color)', cursor: 'pointer', fontWeight: '500' }} onClick={() => setTxAction(tx.id, null)}>Desfazer</button>
+                        </>
                       ) : (
-                        <button style={{ background: 'none', border: 'none', color: 'var(--accent-color)', cursor: 'pointer', fontWeight: '500' }} onClick={() => setConciliatingTxId(tx.id)}>
-                          conciliar com...
-                        </button>
+                        <>
+                          <button style={{ background: 'none', border: 'none', color: 'var(--accent-color)', cursor: 'pointer', fontWeight: '500' }} onClick={() => setTxAction(tx.id, 'add')}>
+                            + adicionar
+                          </button>
+                          <span style={{ color: '#ccc' }}>|</span>
+                          {conciliatingTxId === tx.id ? (
+                            <select 
+                              autoFocus
+                              style={{ padding: '4px', borderRadius: '4px', border: '1px solid var(--accent-color)', outline: 'none' }}
+                              onChange={(e) => {
+                                if (!e.target.value) return;
+                                const match = safeTransactions.find(t => t.id === e.target.value);
+                                setTxAction(tx.id, 'match', match);
+                              }}
+                              onBlur={() => setConciliatingTxId(null)}
+                            >
+                              <option value="">Selecione...</option>
+                              {safeTransactions.slice(0, 100).map(etx => (
+                                <option key={etx.id} value={etx.id}>{etx.description.split(' | ')[0]} - {formatCurrency(etx.amount)}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <button style={{ background: 'none', border: 'none', color: 'var(--accent-color)', cursor: 'pointer', fontWeight: '500' }} onClick={() => setConciliatingTxId(tx.id)}>
+                              conciliar com...
+                            </button>
+                          )}
+                          <span style={{ color: '#ccc' }}>|</span>
+                          <button style={{ background: 'none', border: 'none', color: 'var(--danger-color)', cursor: 'pointer', fontWeight: '500' }} onClick={() => setTxAction(tx.id, 'ignore')}>
+                            ignorar
+                          </button>
+                        </>
                       )}
                     </div>
                   ) : tx.action === 'add' ? (
                     <div style={{
-                      padding: '16px', 
+                      padding: '12px 16px', 
                       background: '#F0F9F4', 
                       border: '1px solid #C3E6D1', 
                       borderRadius: '4px',
                       display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
+                      flexDirection: 'column',
+                      gap: '8px'
                     }}>
-                      <span style={{ color: 'var(--success-color)', fontWeight: '600' }}>Novo Lançamento será adicionado</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ color: 'var(--success-color)', fontWeight: '600', fontSize: '0.9rem' }}>Novo Lançamento</span>
+                        <button onClick={() => setTxAction(tx.id, null)} style={{background:'none', border:'none', color:'var(--danger-color)', cursor:'pointer', fontSize: '0.8rem'}}>Desfazer</button>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input 
+                          type="text" 
+                          value={tx.customDesc !== undefined ? tx.customDesc : tx.description.split(' | ')[0]} 
+                          onChange={(e) => updateTxField(tx.id, 'customDesc', e.target.value)} 
+                          className="form-control" 
+                          style={{padding: '6px', fontSize: '0.85rem', flex: 1}} 
+                          placeholder="Descrição"
+                        />
+                        <select 
+                          value={tx.customCategory || tx.category || 'Geral'} 
+                          onChange={(e) => updateTxField(tx.id, 'customCategory', e.target.value)} 
+                          className="form-control" 
+                          style={{padding: '6px', fontSize: '0.85rem', width: '130px'}}
+                        >
+                          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
                     </div>
                   ) : (
                     <div style={{
@@ -408,6 +452,10 @@ function App() {
                       display: 'flex', 
                       flexDirection: 'column',
                     }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <span style={{ color: 'var(--success-color)', fontWeight: '600', fontSize: '0.85rem' }}>Conciliado com:</span>
+                        <button onClick={() => setTxAction(tx.id, null)} style={{background:'none', border:'none', color:'var(--danger-color)', cursor:'pointer', fontSize: '0.8rem'}}>Desfazer</button>
+                      </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                         <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '0.95rem' }}>{tx.matchedTx.description.split(' | ')[0]}</span>
                         <span style={{ fontWeight: '600', color: tx.matchedTx.amount > 0 ? 'var(--success-color)' : 'var(--danger-color)' }}>
