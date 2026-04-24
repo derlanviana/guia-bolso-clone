@@ -95,6 +95,10 @@ function App() {
     return date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(' de ', ' ');
   };
 
+  // Conciliation State
+  const [conciliationData, setConciliationData] = useState(null);
+  const [selectedConciliationIds, setSelectedConciliationIds] = useState(new Set());
+
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -118,61 +122,86 @@ function App() {
       }
 
       if (newTransactions.length > 0) {
-        // Conciliation: prevent duplicates by ID or identical match
-        const existingIds = new Set(safeTransactions.map(t => t.id));
-        const imported = [];
-        let ignored = 0;
-
-        newTransactions.forEach(tx => {
-          const isDuplicate = safeTransactions.some(etx => etx.amount === tx.amount && etx.date.split('T')[0] === tx.date.split('T')[0]);
-          
-          if (!existingIds.has(tx.id) && !isDuplicate) {
-            imported.push(tx);
-            existingIds.add(tx.id);
-          } else {
-            ignored++;
+        // Map matches to open Conciliation View
+        const mappedData = newTransactions.map(tx => {
+          const match = safeTransactions.find(etx => 
+            etx.amount === tx.amount && 
+            etx.date.split('T')[0] === tx.date.split('T')[0]
+          );
+          return {
+            ...tx,
+            isMatch: !!match,
+            matchedTx: match
           }
         });
-
-        if (imported.length > 0) {
-          // Insert into Supabase (Map isRecurring to isrecurring for Postgres)
-          const dbImported = imported.map(({ isRecurring, ...rest }) => ({
-            ...rest,
-            isrecurring: isRecurring || false
-          }));
-          const { error } = await supabase.from('transactions').insert(dbImported);
-          if (error) throw error;
-
-          const allTransactions = [...safeTransactions, ...imported].sort((a, b) => new Date(b.date) - new Date(a.date));
-          setTransactions(allTransactions);
-
-          // Save account reference
-          const newAccount = {
-            id: Math.random().toString(36).substring(7),
-            name: 'Conta Importada',
-            number: file.name,
-            balance: imported.reduce((acc, tx) => acc + tx.amount, 0)
-          };
-          const { error: accError } = await supabase.from('accounts').insert([newAccount]);
-          if (!accError) {
-             setAccounts([...safeAccounts, newAccount]);
-          }
-
-          alert(`Conciliação concluída!\n✅ ${imported.length} novas transações salvas na nuvem.\n⚠️ ${ignored} ignoradas (já existiam).`);
-        } else {
-          alert(`Todas as ${ignored} transações do arquivo já existiam no sistema. Nenhuma novidade.`);
-        }
-
+        
+        setConciliationData({ fileName: file.name, transactions: mappedData });
+        
+        // Select only new transactions by default
+        const newIds = mappedData.filter(t => !t.isMatch).map(t => t.id);
+        setSelectedConciliationIds(new Set(newIds));
+        
       } else {
         alert('Nenhuma transação encontrada no arquivo.');
       }
     } catch (error) {
       console.error(error);
-      alert('Houve um erro ao salvar os dados no Supabase.');
+      alert('Houve um erro ao processar o arquivo.');
     } finally {
       setLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const confirmConciliation = async () => {
+    const toImportRaw = conciliationData.transactions.filter(t => selectedConciliationIds.has(t.id));
+    if (toImportRaw.length === 0) {
+      setConciliationData(null);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Map isRecurring to isrecurring for Postgres
+      const dbImported = toImportRaw.map(({ isMatch, matchedTx, isRecurring, ...rest }) => ({
+        ...rest,
+        isrecurring: isRecurring || false
+      }));
+      
+      const { error } = await supabase.from('transactions').insert(dbImported);
+      if (error) throw error;
+
+      // Ensure we restore the camelCase for the frontend state
+      const importedForState = dbImported.map(tx => ({...tx, isRecurring: tx.isrecurring}));
+      
+      const allTransactions = [...safeTransactions, ...importedForState].sort((a, b) => new Date(b.date) - new Date(a.date));
+      setTransactions(allTransactions);
+
+      // Save account reference
+      const newAccount = {
+        id: Math.random().toString(36).substring(7),
+        name: 'Conta Importada',
+        number: conciliationData.fileName,
+        balance: importedForState.reduce((acc, tx) => acc + tx.amount, 0)
+      };
+      await supabase.from('accounts').insert([newAccount]);
+      setAccounts([...safeAccounts, newAccount]);
+
+      alert(`✅ ${dbImported.length} transações importadas com sucesso!`);
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao salvar no Supabase.');
+    } finally {
+      setLoading(false);
+      setConciliationData(null);
+    }
+  };
+
+  const toggleConciliationItem = (id) => {
+    const newSet = new Set(selectedConciliationIds);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedConciliationIds(newSet);
   };
 
   const openModal = (tx = null) => {
@@ -255,6 +284,89 @@ function App() {
       }
     }
   };
+
+  if (conciliationData) {
+    return (
+      <div className="app-container" style={{ maxWidth: '800px' }}>
+        <div className="glass-panel" style={{ padding: '40px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+            <div>
+              <h2 style={{ color: 'var(--text-primary)', marginBottom: '8px' }}>Conciliação Bancária</h2>
+              <p style={{ color: 'var(--text-secondary)' }}>Arquivo: {conciliationData.fileName}</p>
+            </div>
+            <div style={{ display: 'flex', gap: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: 'var(--accent-color)' }}></span>
+                Novo Lançamento
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: 'var(--text-secondary)' }}></span>
+                Já Existente
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '60vh', overflowY: 'auto', paddingRight: '8px' }}>
+            {conciliationData.transactions.map((tx) => (
+              <label 
+                key={tx.id} 
+                style={{
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '16px', 
+                  padding: '16px', 
+                  background: 'var(--bg-color)', 
+                  border: '1px solid var(--border-color)', 
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                  opacity: tx.isMatch && !selectedConciliationIds.has(tx.id) ? 0.6 : 1
+                }}
+              >
+                <input 
+                  type="checkbox" 
+                  checked={selectedConciliationIds.has(tx.id)}
+                  onChange={() => toggleConciliationItem(tx.id)}
+                  style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                />
+                
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{tx.description.split(' | ')[0]}</span>
+                    <span style={{ fontWeight: '600', color: tx.amount > 0 ? 'var(--success-color)' : 'var(--danger-color)' }}>
+                      {tx.amount > 0 ? '+' : ''}{formatCurrency(tx.amount)}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      {new Date(tx.date).toLocaleDateString('pt-BR')} • {tx.category}
+                    </span>
+                    {tx.isMatch ? (
+                      <span style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '500' }}>
+                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--text-secondary)' }}></span>
+                        Já Existente
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--accent-color)', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '600' }}>
+                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-color)' }}></span>
+                        Novo Lançamento
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </label>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '16px', marginTop: '32px', paddingTop: '24px', borderTop: '1px solid var(--border-color)' }}>
+            <button className="btn secondary" onClick={() => setConciliationData(null)}>Cancelar</button>
+            <button className="btn" onClick={confirmConciliation} disabled={loading || selectedConciliationIds.size === 0}>
+              {loading ? 'Importando...' : `Confirmar Importação (${selectedConciliationIds.size})`}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
