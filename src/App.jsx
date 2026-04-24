@@ -301,6 +301,76 @@ function App() {
     }
   };
 
+  const seedDatabase = async () => {
+    if (!isSupabaseConfigured) {
+      alert("Supabase não configurado.");
+      return;
+    }
+    
+    if (!window.confirm("ATENÇÃO: Isso vai APAGAR TODOS os seus lançamentos e inserir 5 de exemplo. Tem certeza?")) return;
+
+    setLoading(true);
+    try {
+      await supabase.from('transactions').delete().neq('id', 'impossivel');
+      
+      const today = new Date();
+      const sampleTransactions = [
+        {
+          id: Math.random().toString(36).substring(7),
+          description: "Salário da Empresa",
+          amount: 4500.00,
+          date: new Date(today.getFullYear(), today.getMonth(), 5).toISOString(),
+          category: "Salário",
+          isrecurring: false
+        },
+        {
+          id: Math.random().toString(36).substring(7),
+          description: "Aluguel",
+          amount: -1500.00,
+          date: new Date(today.getFullYear(), today.getMonth(), 10).toISOString(),
+          category: "Moradia",
+          isrecurring: true
+        },
+        {
+          id: Math.random().toString(36).substring(7),
+          description: "Supermercado Extra",
+          amount: -450.75,
+          date: new Date(today.getFullYear(), today.getMonth(), 12).toISOString(),
+          category: "Alimentação",
+          isrecurring: false
+        },
+        {
+          id: Math.random().toString(36).substring(7),
+          description: "Uber",
+          amount: -35.50,
+          date: new Date(today.getFullYear(), today.getMonth(), 15).toISOString(),
+          category: "Transporte",
+          isrecurring: false
+        },
+        {
+          id: Math.random().toString(36).substring(7),
+          description: "Conta de Luz",
+          amount: -120.00,
+          date: new Date(today.getFullYear(), today.getMonth(), 20).toISOString(),
+          category: "Moradia",
+          isrecurring: true
+        }
+      ];
+
+      const { error: insError } = await supabase.from('transactions').insert(sampleTransactions);
+      if (insError) throw insError;
+      
+      const mappedForState = sampleTransactions.map(tx => ({...tx, isRecurring: tx.isrecurring}));
+      setTransactions(mappedForState.sort((a, b) => new Date(b.date) - new Date(a.date)));
+      alert("Banco de dados resetado com sucesso!");
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao resetar o banco de dados.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (conciliationData) {
     const selectedCount = conciliationData.transactions.filter(t => t.action === 'add' || t.action === 'match').length;
     
@@ -493,7 +563,17 @@ function App() {
 
       <header className="dashboard-header">
         <div>
-          <h1>Minhas Finanças (Cloud)</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <h1>Minhas Finanças (Cloud)</h1>
+            {isSupabaseConfigured && (
+              <button 
+                onClick={seedDatabase} 
+                style={{ background: 'var(--danger-color)', color: '#fff', border: 'none', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold' }}
+              >
+                Resetar p/ Exemplos
+              </button>
+            )}
+          </div>
           <div className="month-selector">
             <button onClick={() => handleMonthChange(-1)}>◄</button>
             <span style={{textTransform: 'capitalize'}}>{getMonthName(currentMonth)}</span>
