@@ -95,9 +95,8 @@ function App() {
     return date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(' de ', ' ');
   };
 
-  // Conciliation State
   const [conciliationData, setConciliationData] = useState(null);
-  const [selectedConciliationIds, setSelectedConciliationIds] = useState(new Set());
+  const [conciliatingTxId, setConciliatingTxId] = useState(null);
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
@@ -122,7 +121,6 @@ function App() {
       }
 
       if (newTransactions.length > 0) {
-        // Map matches to open Conciliation View
         const mappedData = newTransactions.map(tx => {
           const match = safeTransactions.find(etx => 
             etx.amount === tx.amount && 
@@ -130,17 +128,12 @@ function App() {
           );
           return {
             ...tx,
-            isMatch: !!match,
-            matchedTx: match
+            action: match ? 'match' : null,
+            matchedTx: match || null
           }
         });
         
         setConciliationData({ fileName: file.name, transactions: mappedData });
-        
-        // Select only new transactions by default
-        const newIds = mappedData.filter(t => !t.isMatch).map(t => t.id);
-        setSelectedConciliationIds(new Set(newIds));
-        
       } else {
         alert('Nenhuma transação encontrada no arquivo.');
       }
@@ -154,54 +147,67 @@ function App() {
   };
 
   const confirmConciliation = async () => {
-    const toImportRaw = conciliationData.transactions.filter(t => selectedConciliationIds.has(t.id));
-    if (toImportRaw.length === 0) {
-      setConciliationData(null);
-      return;
-    }
+    const toImportRaw = conciliationData.transactions.filter(t => t.action === 'add');
+    
+    if (toImportRaw.length > 0) {
+      setLoading(true);
+      try {
+        const dbImported = toImportRaw.map(({ action, matchedTx, isRecurring, ...rest }) => ({
+          ...rest,
+          isrecurring: isRecurring || false
+        }));
+        
+        const { error } = await supabase.from('transactions').insert(dbImported);
+        if (error) throw error;
 
-    setLoading(true);
-    try {
-      // Map isRecurring to isrecurring for Postgres
-      const dbImported = toImportRaw.map(({ isMatch, matchedTx, isRecurring, ...rest }) => ({
-        ...rest,
-        isrecurring: isRecurring || false
-      }));
-      
-      const { error } = await supabase.from('transactions').insert(dbImported);
-      if (error) throw error;
+        const importedForState = dbImported.map(tx => ({...tx, isRecurring: tx.isrecurring}));
+        const allTransactions = [...safeTransactions, ...importedForState].sort((a, b) => new Date(b.date) - new Date(a.date));
+        setTransactions(allTransactions);
 
-      // Ensure we restore the camelCase for the frontend state
-      const importedForState = dbImported.map(tx => ({...tx, isRecurring: tx.isrecurring}));
-      
-      const allTransactions = [...safeTransactions, ...importedForState].sort((a, b) => new Date(b.date) - new Date(a.date));
-      setTransactions(allTransactions);
+        const newAccount = {
+          id: Math.random().toString(36).substring(7),
+          name: 'Conta Importada',
+          number: conciliationData.fileName,
+          balance: importedForState.reduce((acc, tx) => acc + tx.amount, 0)
+        };
+        await supabase.from('accounts').insert([newAccount]);
+        setAccounts([...safeAccounts, newAccount]);
 
-      // Save account reference
-      const newAccount = {
-        id: Math.random().toString(36).substring(7),
-        name: 'Conta Importada',
-        number: conciliationData.fileName,
-        balance: importedForState.reduce((acc, tx) => acc + tx.amount, 0)
-      };
-      await supabase.from('accounts').insert([newAccount]);
-      setAccounts([...safeAccounts, newAccount]);
-
-      alert(`✅ ${dbImported.length} transações importadas com sucesso!`);
-    } catch (err) {
-      console.error(err);
-      alert('Erro ao salvar no Supabase.');
-    } finally {
-      setLoading(false);
+        alert(`✅ ${dbImported.length} transações importadas com sucesso!`);
+      } catch (err) {
+        console.error(err);
+        alert('Erro ao salvar no Supabase.');
+      } finally {
+        setLoading(false);
+        setConciliationData(null);
+      }
+    } else {
       setConciliationData(null);
     }
   };
 
+  const setTxAction = (id, actionType, matchedTx = null) => {
+    setConciliationData(prev => ({
+      ...prev,
+      transactions: prev.transactions.map(t => 
+        t.id === id ? { ...t, action: actionType, matchedTx: matchedTx } : t
+      )
+    }));
+    setConciliatingTxId(null);
+  };
+
   const toggleConciliationItem = (id) => {
-    const newSet = new Set(selectedConciliationIds);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setSelectedConciliationIds(newSet);
+    // Checkbox purely for visual logic. If checked -> add, if unchecked -> null
+    setConciliationData(prev => ({
+      ...prev,
+      transactions: prev.transactions.map(t => {
+        if (t.id === id) {
+          if (t.action) return { ...t, action: null }; // Uncheck
+          return { ...t, action: 'add' }; // Check defaults to add
+        }
+        return t;
+      })
+    }));
   };
 
   const openModal = (tx = null) => {
@@ -286,8 +292,10 @@ function App() {
   };
 
   if (conciliationData) {
+    const selectedCount = conciliationData.transactions.filter(t => t.action !== null).length;
+    
     return (
-      <div className="app-container" style={{ maxWidth: '800px' }}>
+      <div className="app-container" style={{ maxWidth: '1000px' }}>
         <div className="glass-panel" style={{ padding: '40px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
             <div>
@@ -297,70 +305,129 @@ function App() {
             <div style={{ display: 'flex', gap: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                 <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: 'var(--accent-color)' }}></span>
-                Novo Lançamento
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: 'var(--text-secondary)' }}></span>
-                Já Existente
+                Lançamentos Processados ({selectedCount})
               </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '60vh', overflowY: 'auto', paddingRight: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '60vh', overflowY: 'auto', paddingRight: '8px' }}>
             {conciliationData.transactions.map((tx) => (
-              <label 
-                key={tx.id} 
-                style={{
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '16px', 
-                  padding: '16px', 
-                  background: 'var(--bg-color)', 
-                  border: '1px solid var(--border-color)', 
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                  opacity: tx.isMatch && !selectedConciliationIds.has(tx.id) ? 0.6 : 1
-                }}
-              >
+              <div key={tx.id} style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <input 
                   type="checkbox" 
-                  checked={selectedConciliationIds.has(tx.id)}
+                  checked={tx.action !== null}
                   onChange={() => toggleConciliationItem(tx.id)}
-                  style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                  style={{ width: '20px', height: '20px', cursor: 'pointer', flexShrink: 0 }}
                 />
                 
-                <div style={{ flex: 1 }}>
+                {/* Left Side: Imported Transaction */}
+                <div style={{
+                  flex: 1,
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  padding: '16px', 
+                  background: 'var(--panel-bg)', 
+                  border: '1px solid var(--panel-border)', 
+                  borderRadius: '4px',
+                  opacity: tx.action === null ? 0.6 : 1
+                }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{tx.description.split(' | ')[0]}</span>
+                    <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '0.95rem' }}>{tx.description.split(' | ')[0]}</span>
                     <span style={{ fontWeight: '600', color: tx.amount > 0 ? 'var(--success-color)' : 'var(--danger-color)' }}>
-                      {tx.amount > 0 ? '+' : ''}{formatCurrency(tx.amount)}
+                      {formatCurrency(tx.amount)}
                     </span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>
-                      {new Date(tx.date).toLocaleDateString('pt-BR')} • {tx.category}
-                    </span>
-                    {tx.isMatch ? (
-                      <span style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '500' }}>
-                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--text-secondary)' }}></span>
-                        Já Existente
-                      </span>
-                    ) : (
-                      <span style={{ color: 'var(--accent-color)', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '600' }}>
-                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-color)' }}></span>
-                        Novo Lançamento
-                      </span>
-                    )}
-                  </div>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                    {new Date(tx.date).toLocaleDateString('pt-BR')}
+                  </span>
                 </div>
-              </label>
+
+                {/* Arrow */}
+                <div style={{ color: '#ccc', fontWeight: 'bold' }}>➜</div>
+
+                {/* Right Side: Action / Matched Transaction */}
+                <div style={{ flex: 1 }}>
+                  {tx.action === null ? (
+                    <div style={{
+                      padding: '16px', 
+                      background: 'transparent', 
+                      border: '1px dashed #ccc', 
+                      borderRadius: '4px',
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      gap: '8px',
+                      color: 'var(--accent-color)',
+                      fontWeight: '500',
+                      fontSize: '0.9rem'
+                    }}>
+                      <button style={{ background: 'none', border: 'none', color: 'var(--accent-color)', cursor: 'pointer', fontWeight: '500' }} onClick={() => setTxAction(tx.id, 'add')}>
+                        + adicionar
+                      </button>
+                      <span style={{ color: '#ccc' }}>|</span>
+                      {conciliatingTxId === tx.id ? (
+                        <select 
+                          autoFocus
+                          style={{ padding: '4px', borderRadius: '4px', border: '1px solid var(--accent-color)', outline: 'none' }}
+                          onChange={(e) => {
+                            if (!e.target.value) return;
+                            const match = safeTransactions.find(t => t.id === e.target.value);
+                            setTxAction(tx.id, 'match', match);
+                          }}
+                          onBlur={() => setConciliatingTxId(null)}
+                        >
+                          <option value="">Selecione um lançamento...</option>
+                          {safeTransactions.slice(0, 100).map(etx => (
+                            <option key={etx.id} value={etx.id}>{etx.description.split(' | ')[0]} - {formatCurrency(etx.amount)}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <button style={{ background: 'none', border: 'none', color: 'var(--accent-color)', cursor: 'pointer', fontWeight: '500' }} onClick={() => setConciliatingTxId(tx.id)}>
+                          conciliar com...
+                        </button>
+                      )}
+                    </div>
+                  ) : tx.action === 'add' ? (
+                    <div style={{
+                      padding: '16px', 
+                      background: '#F0F9F4', 
+                      border: '1px solid #C3E6D1', 
+                      borderRadius: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <span style={{ color: 'var(--success-color)', fontWeight: '600' }}>Novo Lançamento será adicionado</span>
+                    </div>
+                  ) : (
+                    <div style={{
+                      padding: '16px', 
+                      background: '#F0F9F4', 
+                      border: '1px solid #C3E6D1', 
+                      borderRadius: '4px',
+                      display: 'flex', 
+                      flexDirection: 'column',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '0.95rem' }}>{tx.matchedTx.description.split(' | ')[0]}</span>
+                        <span style={{ fontWeight: '600', color: tx.matchedTx.amount > 0 ? 'var(--success-color)' : 'var(--danger-color)' }}>
+                          {formatCurrency(tx.matchedTx.amount)}
+                        </span>
+                      </div>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                        {new Date(tx.matchedTx.date).toLocaleDateString('pt-BR')} • {tx.matchedTx.category}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
             ))}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '16px', marginTop: '32px', paddingTop: '24px', borderTop: '1px solid var(--border-color)' }}>
             <button className="btn secondary" onClick={() => setConciliationData(null)}>Cancelar</button>
-            <button className="btn" onClick={confirmConciliation} disabled={loading || selectedConciliationIds.size === 0}>
-              {loading ? 'Importando...' : `Confirmar Importação (${selectedConciliationIds.size})`}
+            <button className="btn" onClick={confirmConciliation} disabled={loading || selectedCount === 0}>
+              {loading ? 'Importando...' : `Confirmar Importação (${selectedCount})`}
             </button>
           </div>
         </div>
