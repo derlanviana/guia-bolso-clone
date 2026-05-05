@@ -65,6 +65,13 @@ body {
 .topnav-link.active { color: var(--bg); background: var(--green); }
 .topnav-link.active svg, .topnav-link.active span { color: var(--bg); }
 .topnav-right { position: absolute; right: 24px; display: flex; align-items: center; gap: 8px; }
+.topnav-icon-btn {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: none; border: 1px solid var(--border);
+  color: var(--text-muted); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.15s;
+}
+.topnav-icon-btn:hover { background: var(--surface-2); color: var(--text); }
 .avatar {
   width: 34px; height: 34px; border-radius: 50%;
   background: var(--purple); color: white;
@@ -104,6 +111,7 @@ body {
 .badge.red { background: var(--red-bg); color: var(--red); }
 .badge.orange { background: var(--orange-bg); color: var(--orange); }
 .badge.blue { background: var(--blue-bg); color: var(--blue); }
+.badge.purple { background: var(--purple-bg); color: var(--purple); }
 .badge.gray { background: var(--surface-3); color: var(--text-muted); }
 
 /* ── BUTTONS ── */

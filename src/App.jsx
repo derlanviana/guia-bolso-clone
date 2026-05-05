@@ -71,7 +71,7 @@ function App() {
       {!loading && (
         <>
           {page === 'dashboard' && <Dashboard {...sharedProps} cards={cards} subscriptions={subscriptions} setPage={setPage}/>}
-          {page === 'transacoes' && <Transacoes {...sharedProps}/>}
+          {page === 'transacoes' && <Transacoes {...sharedProps} subscriptions={subscriptions} setSubscriptions={setSubscriptions} installments={installments} setInstallments={setInstallments}/>}
           {page === 'parcelamentos' && <Parcelamentos installments={installments} setInstallments={setInstallments} formatCurrency={formatCurrency} isSupabaseConfigured={isSupabaseConfigured}/>}
           {page === 'assinaturas' && <Assinaturas subscriptions={subscriptions} setSubscriptions={setSubscriptions} formatCurrency={formatCurrency}/>}
           {page === 'categorias' && <Categorias transactions={transactions} formatCurrency={formatCurrency}/>}

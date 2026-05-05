@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react';
 import { parseOFX, parseCSV } from '../utils/parser';
 import { supabase } from '../supabaseClient';
+import Icon, { CATEGORY_ICON, CATEGORY_COLOR } from '../components/Icon';
+import { detectTransactionType, parseInstallmentName } from '../utils/detect';
 
 const CATS = ['Geral','Alimentação','Moradia','Transporte','Saúde','Lazer','Salário','Investimentos','Educação','Outros'];
-const ICONS = {'Alimentação':'🛒','Moradia':'🏠','Transporte':'🚗','Saúde':'💊','Lazer':'🎮','Salário':'💰','Investimentos':'📈','Educação':'📚','Outros':'📦','Geral':'📋'};
 
-export default function Transacoes({ transactions, setTransactions, accounts, setAccounts, formatCurrency, isSupabaseConfigured }) {
+export default function Transacoes({ transactions, setTransactions, accounts, setAccounts, subscriptions, setSubscriptions, installments, setInstallments, formatCurrency, isSupabaseConfigured }) {
   const now = new Date();
   const [month, setMonth] = useState(now.toISOString().slice(0,7));
   const [loading, setLoading] = useState(false);
@@ -90,7 +91,8 @@ export default function Transacoes({ transactions, setTransactions, accounts, se
       if (parsed.length > 0) {
         const mapped = parsed.map(tx => {
           const match = safe.find(s=>s.amount===tx.amount&&s.date?.split('T')[0]===tx.date?.split('T')[0]);
-          return {...tx, action:match?'match':null, matchedTx:match||null};
+          const detected = detectTransactionType(tx.description||'');
+          return {...tx, action:match?'match':null, matchedTx:match||null, detected};
         });
         setConciliationData({fileName:file.name,transactions:mapped});
       } else alert('Nenhuma transação encontrada.');
@@ -111,22 +113,55 @@ export default function Transacoes({ transactions, setTransactions, accounts, se
   })}));
 
   const confirmConcil = async () => {
-    const toImport = conciliationData.transactions.filter(t=>t.action==='add');
-    if (!toImport.length) { setConciliationData(null); return; }
+    const toAdd = conciliationData.transactions.filter(t=>t.action==='add');
+    const toInst = conciliationData.transactions.filter(t=>t.action==='installment');
+    const toSub = conciliationData.transactions.filter(t=>t.action==='subscription');
+    if (!toAdd.length && !toInst.length && !toSub.length) { setConciliationData(null); return; }
     setLoading(true);
     try {
-      const rows = toImport.map(({action,matchedTx,customDesc,customCategory,isRecurring,description,category,...rest})=>({
-        ...rest,description:customDesc||description?.split(' | ')[0],category:customCategory||category||'Geral',isrecurring:isRecurring||false
-      }));
-      const {error} = await supabase.from('transactions').insert(rows);
-      if(error) throw error;
-      const forState = rows.map(t=>({...t,isRecurring:t.isrecurring}));
-      setTransactions([...safe,...forState].sort((a,b)=>new Date(b.date)-new Date(a.date)));
-      const acc = {id:Math.random().toString(36).substring(7),name:'Conta Importada',number:conciliationData.fileName,balance:forState.reduce((a,t)=>a+t.amount,0)};
-      await supabase.from('accounts').insert([acc]);
-      setAccounts([...safeAcc,acc]);
-      alert(`✅ ${rows.length} transações importadas!`);
-    } catch(err) { alert('Erro ao salvar.'); }
+      // Save regular transactions
+      if (toAdd.length) {
+        const rows = toAdd.map(({action,matchedTx,customDesc,customCategory,detected,isRecurring,description,category,...rest})=>({
+          ...rest,description:customDesc||description?.split(' | ')[0],category:customCategory||category||'Geral',isrecurring:isRecurring||false
+        }));
+        const {error} = await supabase.from('transactions').insert(rows);
+        if(error) throw error;
+        const forState = rows.map(t=>({...t,isRecurring:t.isrecurring}));
+        setTransactions([...safe,...forState].sort((a,b)=>new Date(b.date)-new Date(a.date)));
+      }
+      // Save installments
+      if (toInst.length) {
+        const instRows = toInst.map(tx => ({
+          id: Math.random().toString(36).substring(7),
+          name: tx.customDesc || parseInstallmentName(tx.description||''),
+          total_amount: Math.abs(tx.amount) * (tx.detected?.total_installments||1),
+          installment_amount: Math.abs(tx.amount),
+          current_installment: tx.detected?.current_installment||1,
+          total_installments: tx.detected?.total_installments||1,
+          account_name: 'Importado',
+          status: 'active',
+          icon_emoji: '📋',
+        }));
+        const {error} = await supabase.from('installments').insert(instRows);
+        if(!error && setInstallments) setInstallments(prev=>[...(Array.isArray(prev)?prev:[]),...instRows]);
+      }
+      // Save subscriptions
+      if (toSub.length) {
+        const subRows = toSub.map(tx => ({
+          id: Math.random().toString(36).substring(7),
+          name: tx.customDesc || tx.detected?.suggestedName || tx.description?.split(' | ')[0],
+          description: tx.description?.split(' | ')[0],
+          amount: Math.abs(tx.amount),
+          next_payment: null,
+          payment_count: 0,
+          account_name: 'Importado',
+          icon_emoji: tx.detected?.icon_emoji||'📱',
+        }));
+        const {error} = await supabase.from('subscriptions').insert(subRows);
+        if(!error && setSubscriptions) setSubscriptions(prev=>[...(Array.isArray(prev)?prev:[]),...subRows]);
+      }
+      alert(`✅ Importados: ${toAdd.length} transações, ${toInst.length} parcelamentos, ${toSub.length} assinaturas`);
+    } catch(err) { console.error(err); alert('Erro ao salvar.'); }
     finally { setLoading(false); setConciliationData(null); }
   };
 
@@ -149,7 +184,7 @@ export default function Transacoes({ transactions, setTransactions, accounts, se
   };
 
   if (conciliationData) {
-    const count = conciliationData.transactions.filter(t=>t.action==='add'||t.action==='match').length;
+    const count = conciliationData.transactions.filter(t=>['add','match','installment','subscription'].includes(t.action)).length;
     return (
       <div className="concil-page">
         <div className="card"><div className="card-body">
@@ -162,24 +197,56 @@ export default function Transacoes({ transactions, setTransactions, accounts, se
           <div style={{display:'flex',flexDirection:'column',gap:12,maxHeight:'55vh',overflowY:'auto',paddingRight:4}}>
             {conciliationData.transactions.map(tx=>(
               <div className="concil-row" key={tx.id}>
-                <input type="checkbox" checked={tx.action==='add'||tx.action==='match'} onChange={()=>toggleConcil(tx.id)} style={{width:18,height:18,flexShrink:0,cursor:'pointer'}}/>
+                <input type="checkbox"
+                  checked={tx.action==='add'||tx.action==='match'||tx.action==='installment'||tx.action==='subscription'}
+                  onChange={()=>toggleConcil(tx.id)}
+                  style={{width:18,height:18,flexShrink:0,cursor:'pointer'}}/>
                 <div className="concil-box-left" style={{opacity:(!tx.action||tx.action==='ignore')?0.5:1}}>
-                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-                    <span style={{fontWeight:600,fontSize:14}}>{tx.description?.split(' | ')[0]}</span>
-                    <span style={{fontWeight:700,color:tx.amount>0?'var(--green)':'var(--red)'}}>{formatCurrency(tx.amount)}</span>
+                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:4,gap:8}}>
+                    <span style={{fontWeight:600,fontSize:14,flex:1}}>{tx.description?.split(' | ')[0]}</span>
+                    <span style={{fontWeight:700,color:tx.amount>0?'var(--green)':'var(--red)',flexShrink:0}}>{formatCurrency(tx.amount)}</span>
                   </div>
-                  <span style={{fontSize:12,color:'var(--text-muted)'}}>{new Date(tx.date).toLocaleDateString('pt-BR')}</span>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <span style={{fontSize:12,color:'var(--text-muted)'}}>{new Date(tx.date).toLocaleDateString('pt-BR')}</span>
+                    {tx.detected?.type==='installment'&&<span className="badge blue" style={{fontSize:10}}>Parcelamento detectado</span>}
+                    {tx.detected?.type==='subscription'&&<span className="badge purple" style={{fontSize:10}}>Assinatura detectada</span>}
+                  </div>
                 </div>
-                <span style={{color:'var(--text-dim)'}}>→</span>
+                <span style={{color:'var(--text-dim)'}}><Icon name="chevronRight" size={16}/></span>
                 <div style={{flex:1}}>
                   {(!tx.action||tx.action==='ignore') ? (
-                    <div className="concil-dashed" style={{background:tx.action==='ignore'?'var(--surface-2)':'transparent'}}>
+                    <div className="concil-dashed" style={{background:tx.action==='ignore'?'var(--surface-2)':'transparent',flexWrap:'wrap',gap:'6px 10px'}}>
                       {tx.action==='ignore' ? (<><span style={{color:'var(--text-muted)'}}>Ignorado</span><span className="concil-sep">|</span><button className="concil-action" onClick={()=>setTxAction(tx.id,null)}>Desfazer</button></>)
-                      : (<><button className="concil-action" onClick={()=>setTxAction(tx.id,'add')}>+ adicionar</button><span className="concil-sep">|</span>
-                        {conciliatingId===tx.id?(<select autoFocus style={{padding:'4px 8px',borderRadius:6,border:'1px solid var(--green)',background:'var(--surface-2)',color:'var(--text)',fontSize:13}} onChange={e=>{if(!e.target.value)return;const m=safe.find(t=>t.id===e.target.value);setTxAction(tx.id,'match',m);}} onBlur={()=>setConciliatingId(null)}>
-                          <option value="">Selecione...</option>{safe.slice(0,100).map(s=><option key={s.id} value={s.id}>{s.description?.split(' | ')[0]} — {formatCurrency(s.amount)}</option>)}</select>)
-                        :(<button className="concil-action" onClick={()=>setConciliatingId(tx.id)}>conciliar com...</button>)}
-                        <span className="concil-sep">|</span><button className="concil-action danger" onClick={()=>setTxAction(tx.id,'ignore')}>ignorar</button></>)}
+                      : (<>
+                        <button className="concil-action" onClick={()=>setTxAction(tx.id,'add')}>+ lançar</button>
+                        <span className="concil-sep">|</span>
+                        {conciliatingId===tx.id
+                          ?(<select autoFocus style={{padding:'4px 8px',borderRadius:6,border:'1px solid var(--green)',background:'var(--surface-2)',color:'var(--text)',fontSize:13}} onChange={e=>{if(!e.target.value)return;const m=safe.find(t=>t.id===e.target.value);setTxAction(tx.id,'match',m);}} onBlur={()=>setConciliatingId(null)}>
+                              <option value="">Selecione...</option>{safe.slice(0,100).map(s=><option key={s.id} value={s.id}>{s.description?.split(' | ')[0]} — {formatCurrency(s.amount)}</option>)}
+                            </select>)
+                          :(<button className="concil-action" onClick={()=>setConciliatingId(tx.id)}>conciliar</button>)
+                        }
+                        {tx.detected?.type==='installment'&&<><span className="concil-sep">|</span><button className="concil-action" style={{color:'var(--blue)'}} onClick={()=>setTxAction(tx.id,'installment')}>+ parcelamento</button></>}
+                        {tx.detected?.type==='subscription'&&<><span className="concil-sep">|</span><button className="concil-action" style={{color:'var(--purple)'}} onClick={()=>setTxAction(tx.id,'subscription')}>+ assinatura</button></>}
+                        <span className="concil-sep">|</span>
+                        <button className="concil-action danger" onClick={()=>setTxAction(tx.id,'ignore')}>ignorar</button>
+                      </>)}
+                    </div>
+                  ) : tx.action==='installment' ? (
+                    <div className="concil-green" style={{borderColor:'rgba(59,130,246,0.3)',background:'rgba(59,130,246,0.05)'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                        <span style={{color:'var(--blue)',fontWeight:600,fontSize:13}}>Parcelamento {tx.detected?.current_installment}/{tx.detected?.total_installments}</span>
+                        <button className="concil-action danger" style={{fontSize:12}} onClick={()=>setTxAction(tx.id,null)}>Desfazer</button>
+                      </div>
+                      <input type="text" className="form-control" style={{padding:'6px 10px',fontSize:13,marginTop:6}} value={tx.customDesc!==undefined?tx.customDesc:parseInstallmentName(tx.description||'')} onChange={e=>updateTxField(tx.id,'customDesc',e.target.value)} placeholder="Nome do parcelamento"/>
+                    </div>
+                  ) : tx.action==='subscription' ? (
+                    <div className="concil-green" style={{borderColor:'rgba(139,92,246,0.3)',background:'rgba(139,92,246,0.05)'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                        <span style={{color:'var(--purple)',fontWeight:600,fontSize:13}}>Assinatura recorrente</span>
+                        <button className="concil-action danger" style={{fontSize:12}} onClick={()=>setTxAction(tx.id,null)}>Desfazer</button>
+                      </div>
+                      <input type="text" className="form-control" style={{padding:'6px 10px',fontSize:13,marginTop:6}} value={tx.customDesc!==undefined?tx.customDesc:(tx.detected?.suggestedName||tx.description?.split(' | ')[0])} onChange={e=>updateTxField(tx.id,'customDesc',e.target.value)} placeholder="Nome da assinatura"/>
                     </div>
                   ) : tx.action==='add' ? (
                     <div className="concil-green">
@@ -187,7 +254,7 @@ export default function Transacoes({ transactions, setTransactions, accounts, se
                         <span style={{color:'var(--green)',fontWeight:600,fontSize:13}}>Novo Lançamento</span>
                         <button className="concil-action danger" style={{fontSize:12}} onClick={()=>setTxAction(tx.id,null)}>Desfazer</button>
                       </div>
-                      <div style={{display:'flex',gap:8}}>
+                      <div style={{display:'flex',gap:8,marginTop:6}}>
                         <input type="text" className="form-control" style={{padding:'6px 10px',fontSize:13,flex:1}} value={tx.customDesc!==undefined?tx.customDesc:tx.description?.split(' | ')[0]} onChange={e=>updateTxField(tx.id,'customDesc',e.target.value)} placeholder="Descrição"/>
                         <select className="form-control" style={{padding:'6px 10px',fontSize:13,width:130}} value={tx.customCategory||tx.category||'Geral'} onChange={e=>updateTxField(tx.id,'customCategory',e.target.value)}>
                           {CATS.map(c=><option key={c} value={c}>{c}</option>)}
@@ -196,8 +263,14 @@ export default function Transacoes({ transactions, setTransactions, accounts, se
                     </div>
                   ) : (
                     <div className="concil-green">
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}><span style={{color:'var(--green)',fontWeight:600,fontSize:12}}>Conciliado com:</span><button className="concil-action danger" style={{fontSize:12}} onClick={()=>setTxAction(tx.id,null)}>Desfazer</button></div>
-                      <div style={{display:'flex',justifyContent:'space-between'}}><span style={{fontWeight:600,fontSize:14}}>{tx.matchedTx?.description?.split(' | ')[0]}</span><span style={{fontWeight:700,color:tx.matchedTx?.amount>0?'var(--green)':'var(--red)'}}>{formatCurrency(tx.matchedTx?.amount)}</span></div>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+                        <span style={{color:'var(--green)',fontWeight:600,fontSize:12}}>Conciliado com:</span>
+                        <button className="concil-action danger" style={{fontSize:12}} onClick={()=>setTxAction(tx.id,null)}>Desfazer</button>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between'}}>
+                        <span style={{fontWeight:600,fontSize:14}}>{tx.matchedTx?.description?.split(' | ')[0]}</span>
+                        <span style={{fontWeight:700,color:tx.matchedTx?.amount>0?'var(--green)':'var(--red)'}}>{formatCurrency(tx.matchedTx?.amount)}</span>
+                      </div>
                       <span style={{fontSize:12,color:'var(--text-muted)'}}>{new Date(tx.matchedTx?.date).toLocaleDateString('pt-BR')} · {tx.matchedTx?.category}</span>
                     </div>
                   )}
@@ -224,9 +297,9 @@ export default function Transacoes({ transactions, setTransactions, accounts, se
         </div>
         <div className="tx-actions">
           <input type="file" accept=".ofx,.csv" style={{display:'none'}} ref={fileRef} onChange={handleFile}/>
-          <button className="btn btn-secondary btn-sm" onClick={()=>fileRef.current.click()} disabled={loading}>📥 Importar</button>
-          <button className="btn btn-primary" onClick={()=>openModal(null,'expense')}>➕ Lançar</button>
-          <button className="btn btn-danger btn-sm" onClick={seedDB} title="Demo">🔄</button>
+          <button className="btn btn-secondary btn-sm" onClick={()=>fileRef.current.click()} disabled={loading} style={{display:'flex',alignItems:'center',gap:6}}><Icon name="upload" size={14}/>Importar</button>
+          <button className="btn btn-primary" onClick={()=>openModal(null,'expense')} style={{display:'flex',alignItems:'center',gap:6}}><Icon name="plus" size={14}/>Lançar</button>
+          <button className="btn btn-danger btn-sm" onClick={seedDB} title="Reset Demo" style={{display:'flex',alignItems:'center',gap:6}}><Icon name="repeat" size={14}/></button>
         </div>
       </div>
 
@@ -254,9 +327,14 @@ export default function Transacoes({ transactions, setTransactions, accounts, se
         {filtered.length===0 ? <div className="empty-state"><div className="icon">📭</div><h3>Nenhum lançamento</h3><p>Importe um extrato ou adicione um lançamento.</p></div>
         : filtered.map(tx=>(
           <div className="list-item" key={tx.id} style={{padding:'14px 20px',cursor:'pointer'}} onClick={()=>openModal(tx)}>
-            <div className="item-icon">{ICONS[tx.category]||'📋'}</div>
+            <div className="item-icon" style={{background:`${CATEGORY_COLOR[tx.category]||'#6B7280'}18`}}>
+              <Icon name={CATEGORY_ICON[tx.category]||'package'} size={18} color={CATEGORY_COLOR[tx.category]||'#6B7280'} strokeWidth={1.8}/>
+            </div>
             <div className="item-info">
-              <div className="item-name">{(tx.isRecurring||tx.isrecurring)?'🔄 ':''}{tx.description?.split(' | ')[0]}</div>
+              <div className="item-name" style={{display:'flex',alignItems:'center',gap:6}}>
+                {(tx.isRecurring||tx.isrecurring)&&<Icon name="repeat" size={12} color="var(--text-muted)"/>}
+                {tx.description?.split(' | ')[0]}
+              </div>
               <div className="item-sub"><span className="badge gray" style={{marginRight:6}}>{tx.category}</span>{new Date(tx.date).toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}</div>
             </div>
             <div className={`item-amount ${tx.amount>0?'income':''}`}>{tx.amount>0?'+':''}{formatCurrency(tx.amount)}</div>
@@ -272,8 +350,8 @@ export default function Transacoes({ transactions, setTransactions, accounts, se
               <div className="modal-body">
                 <div className="form-group">
                   <div className="type-toggle">
-                    <div className={`type-btn expense${formType==='expense'?' active':''}`} onClick={()=>setFormType('expense')}>💸 Despesa</div>
-                    <div className={`type-btn income${formType==='income'?' active':''}`} onClick={()=>setFormType('income')}>💰 Receita</div>
+                    <div className={`type-btn expense${formType==='expense'?' active':''}`} onClick={()=>setFormType('expense')} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Icon name="trendingDown" size={14}/>Despesa</div>
+                    <div className={`type-btn income${formType==='income'?' active':''}`} onClick={()=>setFormType('income')} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Icon name="trendingUp" size={14}/>Receita</div>
                   </div>
                 </div>
                 <div className="form-group"><label>Descrição</label><input required className="form-control" value={formDesc} onChange={e=>setFormDesc(e.target.value)} placeholder="Ex: Supermercado"/></div>
